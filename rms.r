@@ -2,13 +2,16 @@
 # https://cfss.uchicago.edu/stat003_logistic_regression.html
 
 source('utils.r')
-dt1 <- load.csv('train.csv')
-dt2 <- load.csv('test.csv')
+dt1 <- load.csv('train.csv')      # learn you a ML model on this
+dt2 <- load.csv('test.csv')       # prove that it works
+
+colnames(dt1)
+colnames(dt2)
 
 dt2[, survived := NA]
 dt <- rbind(dt1, dt2)
 put.first(dt, c('survived'))
-dt
+dt[is.na(embarked)]
 
 # Quick check
 summary(dt)
@@ -17,6 +20,7 @@ cat('')     # cls
 # Won't need their primary key
 drop.cols(dt, 'passengerid')
 str(dt)
+
 
 # Column type changes
 dt[, name     := as.character(name)]
@@ -32,9 +36,7 @@ data.frame(sapply(dt, check.missing))     # dt vs dt1
 data.frame(sapply(dt1, check.missing))     # dt vs dt1
 
 # Ignore cabin: too many NAs
-dt$cabin %>% unique     # unpack cabins and calculate distance to lifeboats?
 dt[, cabin := NULL]
-colnames(dt)
 
 # Handle NA embarked      <-- use library(txtplot) for histogram
 dt$embarked %>% summary
@@ -52,11 +54,19 @@ f_age
 dt[sex == 'male' & is.na(age), age := m_age]
 dt[sex == 'female' & is.na(age), age := f_age]
 
+summary(dt[sex == 'male' & !is.na(age), age])
+
+sd(dt[sex == 'male' & !is.na(age), age])
+mean(dt[sex == 'male' & !is.na(age), age])
+
+rnorm(50, mean=30.6, sd=12.6)
+
 # Handle fare amount ($ or pounds)
 summary(dt$fare)
 boxplot(dt$fare, notch=T)
-dt$fare <- log1p(dt$fare)
+dt[, fare := log1p(fare)]
 boxplot(dt$fare)
+
 
 ########################
 # Interesting passengers
@@ -74,7 +84,7 @@ dt[ticket == 'PC 17485']
 dt[ticket==1601]
 
 # Babies < 1 yr old
-dt[age < 1]
+dt[age < 1, .(survived, age, name)]
 
 ##
 ## Plots
@@ -92,6 +102,7 @@ with(dt, xtabs(survived ~ cut(age, quantile(age,na.rm=T)) + sex))
 ##
 ## Feature Engineering
 ##
+
 
 dt[, nchar(name), by=name][order(V1)]
 dt[, tstrsplit(name, '[,]')]
@@ -129,7 +140,7 @@ str(dt)
 dt.train <- dt[!is.na(survived)]
 dt.test  <- dt[is.na(survived)]
 
-# consider glmnet
+# consider glmnet: generlized linear model
 # https://web.stanford.edu/~hastie/glmnet/glmnet_alpha.html
 
 foo <- glm(survived ~ age, data=dt.train, family=binomial)
