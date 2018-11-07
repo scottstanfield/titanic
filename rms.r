@@ -2,6 +2,7 @@
 # https://cfss.uchicago.edu/stat003_logistic_regression.html
 
 source('utils.r')
+
 dt1 <- load.csv('train.csv')      # learn you a ML model on this
 dt2 <- load.csv('test.csv')       # prove that it works
 
@@ -11,13 +12,13 @@ colnames(dt2)
 dt2[, survived := NA]
 dt <- rbind(dt1, dt2)
 put.first(dt, c('survived'))
-dt[is.na(embarked)]
 
 # Quick check
 summary(dt)
 cat('')     # cls
 
 # Won't need their primary key
+dt[, passengerid := NULL]
 drop.cols(dt, 'passengerid')
 str(dt)
 
@@ -32,23 +33,33 @@ str(dt)
 
 # How many NAs are we dealing with?
 check.missing <- function(x) return(paste0(round(sum(is.na(x))/length(x),4)*100,'%'))
-data.frame(sapply(dt, check.missing))     # dt vs dt1
+#data.frame(sapply(dt, check.missing))     # dt vs dt1
 data.frame(sapply(dt1, check.missing))     # dt vs dt1
 
+# If the cabin note/memo field is missing Px is most likely 1st or 2nd
 # Ignore cabin: too many NAs
 dt[, cabin := NULL]
+
+# Miss Amelie Icard
+# Mrs George Nelson Stone (Martha Evelyn)
+# https://www.encyclopedia-titanica.org/titanic-survivor/martha-evelyn-stone.html
 
 # Handle NA embarked      <-- use library(txtplot) for histogram
 dt$embarked %>% summary
 dt[is.na(embarked)]
 plot(dt$embarked)
-dt[is.na(embarked), embarked := 'S']
+dt[is.na(embarked), embarked := 'S']      # <-- my "state" or imputation BUG: how do we apply to holdback?
+
+# John Alexender literally looked up all the missing ages!
+# https://en.wikipedia.org/wiki/Passengers_of_the_RMS_Titanic#Third_class_2
+
 
 # Handle NA age (mean impute)
 dt1$age %>% summary
 dt[is.na(age)]
-m_age <- dt[sex == 'male' & !is.na(age) , mean(age)]
+m_age <- dt[sex == 'male' & !is.na(age) , mean(age)]    # mean imputation (better: random sample from distribution)
 f_age <- dt[sex == 'female' & !is.na(age) , mean(age)]
+dt1[!is.na(age) & sex=='male', age] %>% hist
 m_age
 f_age
 dt[sex == 'male' & is.na(age), age := m_age]
@@ -56,10 +67,9 @@ dt[sex == 'female' & is.na(age), age := f_age]
 
 summary(dt[sex == 'male' & !is.na(age), age])
 
-sd(dt[sex == 'male' & !is.na(age), age])
 mean(dt[sex == 'male' & !is.na(age), age])
+sd(dt[sex == 'male' & !is.na(age), age])
 
-rnorm(50, mean=30.6, sd=12.6)
 
 # Handle fare amount ($ or pounds)
 summary(dt$fare)
@@ -103,7 +113,6 @@ with(dt, xtabs(survived ~ cut(age, quantile(age,na.rm=T)) + sex))
 ## Feature Engineering
 ##
 
-
 dt[, nchar(name), by=name][order(V1)]
 dt[, tstrsplit(name, '[,]')]
 dt[, tstrsplit(name, '[.,]')]
@@ -113,10 +122,15 @@ dt[, title := tstrsplit(name, '[.,]')[2]]
 # Strip leading space
 dt[, title := substr(title, 2, 200)]
 dt$title %>% unique
+dt[, .N, by=title]
 
 # Map obscure titles to canoncial ones
+# Mlle is French for mademoiselle (aka Ms)
+# Mme is French for madame (aka Mrs)
 dt[, .N, by=title]
-dt[title %in% cc('Mme Ms Mlle'), title := 'Miss']
+dt[title %in% cc('Ms Mlle'), title := 'Miss']
+dt[title %in% cc('Mme'), title := 'Mrs']
+# BUG: dt[title %in% cc('Mme Ms Mlle'), title := 'Miss']
 dt[title %notin% cc('Mr Mrs Miss Master'), title := 'Special']
 dt[, .N, by=title]
 dt[, title := as.factor(title)]
@@ -128,9 +142,9 @@ dt[, .(sex, title)] %>% table
 table(dt$survived, dt$sex)
 
 
-###################
-# Linear Regression
-###################
+#####################
+# Logistic Regression
+#####################
 set.seed(42)
 
 dt[, name := NULL]
@@ -176,25 +190,33 @@ test   <- as.h2o(dt.test, destination_frame = 'test.hex')
 y <- 'survived'
 x <- setdiff(names(dt.train), c(y, 'name', 'ticket'))  # interest rate uncorrelated
 
+y
+x
+
 ##
 ## One-off GBM
 ##
 
+x
 gbm1 <- h2o.gbm(x=x,
             y=y,
             training_frame = train,
             validation_frame = valid,
-            model_id = "gbm1",
+            model_id = "gbm2",
             ntrees = 500,
             max_depth = 6,
-            learn_rate = 0.1)
+            learn_rate = 0.01)
 
 gbm1
 
 # How do we know which features contributed to this particular model?
 h2o.varimp(gbm1)
 
+gbm1
+
+test
 yhat <- h2o.predict(gbm1, test)
+yhat
 h2o.performance(gbm1, train)
 h2o.confusionMatrix(gbm1, train)
 
