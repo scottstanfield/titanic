@@ -1,14 +1,44 @@
 # Royal Mail Steamer Titanic
 # https://cfss.uchicago.edu/stat003_logistic_regression.html
 
+" TODO: consider Purr library for map()
+" https://rpubs.com/Minxing2046/395349
+
+library(purrr)
+
 source('utils.r')
 
-dt1 <- load.csv('train.csv')      # learn you a ML model on this
-dt2 <- load.csv('test.csv')       # prove that it works
+# Just load the csv and take a look
+dt <- fread('train.csv')
+print(dt)
+summary(dt)
+
+# Again, but this time turn *all* strings into factors
+dt <- fread('train.csv', stringsAsFactor=T)
+summary(dt)
+
+# Note: 687 cabins and 2 embarked as empty string ''
+# Really should be NA (aka NULL in SQL)
+dt <- fread('train.csv', stringsAsFactor=T, na.strings='')
+summary(dt)
+
+lread <- function(path)
+{
+  DT <- fread(path, stringsAsFactor=T, na.strings='')
+  setnames(DT, old=names(DT), new=tolower(names(DT)))
+  DT
+}
+
+# Combine both training and testing into one data.table
+
+dt1 <- lread('train.csv')      # learn you a ML model on this
+dt2 <- lread('test.csv')       # prove that it works
 
 colnames(dt1)
 colnames(dt2)
+setdiff(colnames(dt1), colnames(dt2))
 
+# test set needs the missing (but empty) survived column before we combine
 dt2[, survived := NA]
 dt <- rbind(dt1, dt2)
 put.first(dt, c('survived'))
@@ -19,9 +49,7 @@ cat('')     # cls
 
 # Won't need their primary key
 dt[, passengerid := NULL]
-drop.cols(dt, 'passengerid')
 str(dt)
-
 
 # Column type changes
 dt[, name     := as.character(name)]
@@ -31,10 +59,46 @@ summary(dt)
 colnames(dt)
 str(dt)
 
+
+# How do we handle missing data?
+
+library(VIM)
+aggr(dt1, numbers=T, prop=c(T,F))
+aggr(dt2, numbers=T, prop=c(T,F))
+aggr(dt[, -survived], numbers=T)
+
+aggr(dt[, 2:11], numbers=T, prop=c(T,F))
+aggr(dt, numbers=T, prop=c(T,F))
+aggr(dt[, 2:11], numbers=T)
+
+library(mice)
+dt[1:200]
+colnames(dt)
+
+dt[1:200, -c('ticket', 'cabin')]
+
+imp <- mice(dt[1:200, -c('ticket', 'cabin')])
+imp$predictorMatrix
+
+fit <- with(imp, lm(survived~age))
+summary(pool(fit))
+summary(lm(survived~age,data=dt[1:200, -c('ticket', 'cabin')]))
+
+map(dt,~sum(is.na(.))) %>% data.frame %>% t
+map(dt,~sum(is.na(.))) %>%
+
+
+?split
+mtcars %>% split(.$cyl) %>% map(~ lm(mpg ~ wt, data = .x)) %>% map(summary)
+mtcars %>%
+  split(.$cyl) %>%
+  map(~ lm(mpg ~ wt, data = .x)) %>%
+  map(summary) %>%
+  map_dbl("r.squared")
+
 # How many NAs are we dealing with?
-check.missing <- function(x) return(paste0(round(sum(is.na(x))/length(x),4)*100,'%'))
-#data.frame(sapply(dt, check.missing))     # dt vs dt1
-data.frame(sapply(dt1, check.missing))     # dt vs dt1
+check.missing <- function(x) return(paste0(round(sum(is.na(x))/length(x),3)*100,'%'))
+data.frame(sapply(dt, check.missing))     # dt vs dt1
 
 # If the cabin note/memo field is missing Px is most likely 1st or 2nd
 # Ignore cabin: too many NAs
